@@ -148,7 +148,7 @@ int sendMicrophoneOpusData(const unsigned char* opusData, int opusLength) {
     memcpy(&saddr, &RemoteAddr, sizeof(saddr));
     SET_PORT(&saddr, MicPortNumber);
     
-    err = sendto(micSocket, (const char*)packet, packetLength, 0, (struct sockaddr*)&saddr, AddrLen);
+    err = LC_SENDTO(micSocket, (const char*)packet, packetLength, 0, (struct sockaddr*)&saddr, AddrLen);
     if (err < 0) {
         return LastSocketError();
     }

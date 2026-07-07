@@ -1,5 +1,9 @@
 #include "Limelight-internal.h"
 
+#ifdef USE_VNT
+#include "VntTransport.h"
+#endif
+
 static int stage = STAGE_NONE;
 static ConnListenerConnectionTerminated originalTerminationCallback;
 static bool alreadyTerminated;
@@ -146,6 +150,12 @@ void LiStopConnection(void) {
         stage--;
         Limelog("done\n");
     }
+#ifdef USE_VNT
+    if (g_VntCtx) {
+        vntTransportFree();
+        Limelog("VNT: transport freed\n");
+    }
+#endif
     LC_ASSERT(stage == STAGE_NONE);
     
     if (RemoteAddrString != NULL) {
@@ -410,6 +420,75 @@ int LiStartConnection(PSERVER_INFORMATION serverInfo, PSTREAM_CONFIGURATION stre
     Limelog("Resolving host name...");
     ListenerCallbacks.stageStarting(STAGE_NAME_RESOLUTION);
     LC_ASSERT(RtspPortNumber != 0);
+#ifdef USE_VNT
+    /* In vnt mode, skip DNS resolution and STUN/ConnectionTester.
+     * The remote address is the vnt virtual IP of the Sunshine host.
+     * We read it from the env var MOONLIGHT_VNT_REMOTE_IP or from
+     * serverInfo->address if it's already an IP. */
+    {
+        const char* vntToken = getenv("MOONLIGHT_VNT_TOKEN");
+        const char* vntConfig = getenv("MOONLIGHT_VNT_CONFIG");
+        char defaultConfig[512];
+        if (vntConfig) {
+            err = vntTransportInit(vntConfig, 30000);
+        } else {
+            const char* token = vntToken ? vntToken : "moonlight-vnt-default";
+            snprintf(defaultConfig, sizeof(defaultConfig),
+                     "{\"token\":\"%s\",\"name\":\"moonlight-client\","
+                     "\"device_id\":\"moonlight-%d\","
+                     "\"stun_server\":[\"stun1.l.google.com:19302\","
+                     "\"stun2.l.google.com:19302\"]}",
+                     token, (int)getpid());
+            err = vntTransportInit(defaultConfig, 30000);
+        }
+        if (err != 0) {
+            Limelog("VNT init failed: %d\n", err);
+            ListenerCallbacks.stageFailed(STAGE_NAME_RESOLUTION, err);
+            goto Cleanup;
+        }
+        /* Parse the remote vnt IP from serverInfo->address */
+        {
+            struct in_addr remoteIn;
+            if (inet_pton(AF_INET, serverInfo->address, &remoteIn) == 1) {
+                memset(&RemoteAddr, 0, sizeof(RemoteAddr));
+                struct sockaddr_in* sin = (struct sockaddr_in*)&RemoteAddr;
+                sin->sin_family = AF_INET;
+                sin->sin_addr = remoteIn;
+                sin->sin_port = htons(RtspPortNumber);
+                AddrLen = sizeof(*sin);
+            } else {
+                Limelog("VNT: serverInfo->address is not a valid IPv4: %s\n",
+                        serverInfo->address);
+                err = -1;
+                ListenerCallbacks.stageFailed(STAGE_NAME_RESOLUTION, err);
+                goto Cleanup;
+            }
+        }
+        /* Set LocalAddr to our vnt virtual IP */
+        {
+            uint32_t vip = vntTransportVirtualIp();
+            memset(&LocalAddr, 0, sizeof(LocalAddr));
+            struct sockaddr_in* sin = (struct sockaddr_in*)&LocalAddr;
+            sin->sin_family = AF_INET;
+            sin->sin_addr.s_addr = htonl(vip);
+            sin->sin_port = 0;
+        }
+        /* RemoteAddrString */
+        RemoteAddrString = strdup(serverInfo->address);
+        /* Force local streaming mode (vnt is a virtual LAN) */
+        StreamConfig.streamingRemotely = STREAM_CFG_LOCAL;
+        /* Cap packet size from vnt MTU */
+        {
+            int vntMtu = vntTransportMtu();
+            if (StreamConfig.packetSize > vntMtu) {
+                Limelog("VNT: capping packet size from %d to %d (vnt MTU)\n",
+                        StreamConfig.packetSize, vntMtu);
+                StreamConfig.packetSize = vntMtu;
+            }
+        }
+        err = 0;
+    }
+#else
     if (RtspPortNumber != 48010) {
         // If we have an alternate RTSP port, use that as our test port. The host probably
         // isn't listening on 47989 or 47984 anyway, since they're using alternate ports.
@@ -454,6 +533,7 @@ int LiStartConnection(PSERVER_INFORMATION serverInfo, PSTREAM_CONFIGURATION stre
         }
         LC_ASSERT(localAddrLen == AddrLen);
     }
+#endif
 
     stage++;
     LC_ASSERT(stage == STAGE_NAME_RESOLUTION);

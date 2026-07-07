@@ -13,6 +13,16 @@
 
 #include <enet/enet.h>
 
+#ifdef USE_VNT
+#include "VntTransport.h"
+#define LC_SENDTO(s, buf, len, flags, to, tolen) \
+    (g_VntCtx ? vntSendto((s), (const char*)(buf), (int)(len), (flags), (to), (tolen)) \
+              : sendto((s), (buf), (len), (flags), (to), (tolen)))
+#else
+#define LC_SENDTO(s, buf, len, flags, to, tolen) \
+    sendto((s), (buf), (len), (flags), (to), (tolen))
+#endif
+
 // Common globals
 extern char* RemoteAddrString;
 extern struct sockaddr_storage RemoteAddr;

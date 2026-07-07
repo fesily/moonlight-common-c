@@ -1,5 +1,9 @@
 #include "Limelight-internal.h"
 
+#ifdef USE_VNT
+#include "VntTransport.h"
+#endif
+
 #define TEST_PORT_TIMEOUT_SEC 3
 
 #define RCV_BUFFER_SIZE_MIN  32767
@@ -64,12 +68,18 @@ void addrToUrlSafeString(struct sockaddr_storage* addr, char* string, size_t str
 }
 
 void shutdownTcpSocket(SOCKET s) {
+#ifdef USE_VNT
+    if (g_VntCtx) { vntShutdownTcpSocket(s); return; }
+#endif
     // Calling shutdown() prior to close wakes up callers
     // blocked in connect(), recv(), and friends.
     shutdown(s, SHUT_RDWR);
 }
 
 int setNonFatalRecvTimeoutMs(SOCKET s, int timeoutMs) {
+#ifdef USE_VNT
+    if (g_VntCtx) { return vntSetNonFatalRecvTimeoutMs(s, timeoutMs); }
+#endif
 #if defined(LC_WINDOWS) && !defined(NXDK)
     // Windows says that SO_RCVTIMEO puts the socket into an indeterminate state
     // when a timeout occurs. MSDN doesn't go into it any more than that, but it
@@ -93,6 +103,9 @@ int setNonFatalRecvTimeoutMs(SOCKET s, int timeoutMs) {
 }
 
 int pollSockets(struct pollfd* pollFds, int pollFdsCount, int timeoutMs) {
+#ifdef USE_VNT
+    if (g_VntCtx) { return vntPollSockets(pollFds, pollFdsCount, timeoutMs); }
+#endif
 #if defined(LC_WINDOWS) && !defined(NXDK)
     // We could have used WSAPoll() but it has some nasty bugs
     // https://daniel.haxx.se/blog/2012/10/10/wsapoll-is-broken/
@@ -165,6 +178,9 @@ int pollSockets(struct pollfd* pollFds, int pollFdsCount, int timeoutMs) {
 }
 
 bool isSocketReadable(SOCKET s) {
+#ifdef USE_VNT
+    if (g_VntCtx) { return vntIsSocketReadable(s); }
+#endif
     struct pollfd pfd;
     int err;
 
@@ -179,6 +195,9 @@ bool isSocketReadable(SOCKET s) {
 }
 
 int recvUdpSocket(SOCKET s, char* buffer, int size, bool useSelect) {
+#ifdef USE_VNT
+    if (g_VntCtx) { return vntRecvUdpSocket(s, buffer, size, useSelect); }
+#endif
     int err;
 
     do {
@@ -231,6 +250,9 @@ int recvUdpSocket(SOCKET s, char* buffer, int size, bool useSelect) {
 }
 
 void closeSocket(SOCKET s) {
+#ifdef USE_VNT
+    if (g_VntCtx) { vntCloseSocket(s); return; }
+#endif
 #if defined(LC_WINDOWS) && !defined(NXDK)
     closesocket(s);
 #else
@@ -316,6 +338,9 @@ static void setSocketQos(SOCKET s, int socketQosType) {
 }
 
 SOCKET bindUdpSocket(int addressFamily, struct sockaddr_storage* localAddr, SOCKADDR_LEN addrLen, int bufferSize, int socketQosType) {
+#ifdef USE_VNT
+    if (g_VntCtx) { return vntBindUdpSocket(addressFamily, localAddr, addrLen, bufferSize, socketQosType); }
+#endif
     SOCKET s;
     LC_SOCKADDR bindAddr;
     int err;
@@ -452,6 +477,9 @@ int setSocketNonBlocking(SOCKET s, bool enabled) {
 }
 
 SOCKET createSocket(int addressFamily, int socketType, int protocol, bool nonBlocking) {
+#ifdef USE_VNT
+    if (g_VntCtx) { return vntCreateSocket(addressFamily, socketType, protocol, nonBlocking); }
+#endif
     SOCKET s;
 
     s = socket(addressFamily, socketType, protocol);
@@ -476,6 +504,9 @@ SOCKET createSocket(int addressFamily, int socketType, int protocol, bool nonBlo
 }
 
 SOCKET connectTcpSocket(struct sockaddr_storage* dstaddr, SOCKADDR_LEN addrlen, unsigned short port, int timeoutSec) {
+#ifdef USE_VNT
+    if (g_VntCtx) { return vntConnectTcpSocket(dstaddr, addrlen, port, timeoutSec); }
+#endif
     SOCKET s;
     LC_SOCKADDR addr;
     struct pollfd pfd;
@@ -635,6 +666,9 @@ int getLocalAddressByUdpConnect(const struct sockaddr_storage* targetAddr, SOCKA
 // See TCP_MAXSEG note in connectTcpSocket() above for more information.
 // TCP_NODELAY must be enabled on the socket for this function to work!
 int sendMtuSafe(SOCKET s, char* buffer, int size) {
+#ifdef USE_VNT
+    if (g_VntCtx) { return vntSendMtuSafe(s, buffer, size); }
+#endif
     int bytesSent = 0;
 
     while (bytesSent < size) {
@@ -652,6 +686,9 @@ int sendMtuSafe(SOCKET s, char* buffer, int size) {
 }
 
 int enableNoDelay(SOCKET s) {
+#ifdef USE_VNT
+    if (g_VntCtx) { return vntEnableNoDelay(s); }
+#endif
     int err;
     int val;
 
